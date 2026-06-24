@@ -11,17 +11,18 @@ enum PopoverHelper {
     private static var globalMouseDownMonitor: Any?
 
     /// Show a popover with the given content view, anchored relative to a rect in the given parent view.
-    static func show(_ contentView: NSView, size: NSSize, relativeTo rect: NSRect, of view: NSView, preferredEdge: NSRectEdge = .minY) {
+    /// Pass `appearance: nil` to let the popover inherit the system adaptive appearance.
+    static func show(_ contentView: NSView, size: NSSize, relativeTo rect: NSRect, of view: NSView, preferredEdge: NSRectEdge = .minY, appearance: NSAppearance? = ToolbarLayout.appearance) {
         dismiss()
 
         let popover = NSPopover()
         popover.behavior = .semitransient
         popover.contentSize = size
         popover.animates = true
-        popover.appearance = ToolbarLayout.appearance
+        popover.appearance = appearance
 
         let vc = NSViewController()
-        vc.view = cursorWrapped(contentView)
+        vc.view = cursorWrapped(contentView, appearance: appearance)
         popover.contentViewController = vc
         popover.delegate = AnchorCleanupDelegate.shared
         popover.show(relativeTo: rect, of: view, preferredEdge: preferredEdge)
@@ -31,8 +32,8 @@ enum PopoverHelper {
     }
 
     /// Show a popover anchored to a specific point in a view (for overlay mode where buttons aren't real views).
-
-    static func showAtPoint(_ contentView: NSView, size: NSSize, at point: NSPoint, in parentView: NSView, preferredEdge: NSRectEdge = .minY) {
+    /// Pass `appearance: nil` to let the popover inherit the system adaptive appearance.
+    static func showAtPoint(_ contentView: NSView, size: NSSize, at point: NSPoint, in parentView: NSView, preferredEdge: NSRectEdge = .minY, appearance: NSAppearance? = ToolbarLayout.appearance) {
         dismiss()
 
         // Create a tiny invisible anchor view at the point
@@ -44,10 +45,10 @@ enum PopoverHelper {
         popover.behavior = .semitransient
         popover.contentSize = size
         popover.animates = true
-        popover.appearance = ToolbarLayout.appearance
+        popover.appearance = appearance
 
         let vc = NSViewController()
-        vc.view = cursorWrapped(contentView)
+        vc.view = cursorWrapped(contentView, appearance: appearance)
         popover.contentViewController = vc
         popover.delegate = AnchorCleanupDelegate.shared
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: preferredEdge)
@@ -102,10 +103,10 @@ enum PopoverHelper {
     }
 
     /// Wrap content view so the popover always shows an arrow cursor regardless of active tool.
-    /// Sets appearance to match toolbar background brightness.
-    private static func cursorWrapped(_ contentView: NSView) -> NSView {
+    /// `appearance` controls the wrapper's NSAppearance; pass nil for system-adaptive behavior.
+    private static func cursorWrapped(_ contentView: NSView, appearance: NSAppearance? = ToolbarLayout.appearance) -> NSView {
         let wrapper = ArrowCursorView(frame: contentView.frame)
-        wrapper.appearance = ToolbarLayout.appearance
+        wrapper.appearance = appearance
         contentView.frame.origin = .zero
         wrapper.addSubview(contentView)
         return wrapper

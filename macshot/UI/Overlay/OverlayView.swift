@@ -407,6 +407,9 @@ class OverlayView: NSView {
     var rightButtons: [ToolbarButton] = []
     var bottomBarRect: NSRect = .zero
     var rightBarRect: NSRect = .zero
+    /// When true, rebuildToolbarLayout() is a no-op and no floating strips are created.
+    /// Set by SlimEditorWindowController so the slim editor's NSToolbar handles all chrome.
+    var suppressFloatingToolbars: Bool = false
     var showToolbars: Bool = false {
         didSet {
             if showToolbars && !oldValue {
@@ -4933,6 +4936,7 @@ class OverlayView: NSView {
 
     /// Rebuild toolbar button content. Call when tool, color, or state changes — NOT on every draw.
     func rebuildToolbarLayout() {
+        guard !suppressFloatingToolbars else { return }
         // Clear tooltip before rebuilding — old button views are about to be destroyed
         hoveredTooltip = nil
         hoveredTooltipButtonView = nil

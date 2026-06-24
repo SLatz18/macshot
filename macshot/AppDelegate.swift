@@ -1228,6 +1228,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
             if pendingOCRMode { controller.setAutoOCRMode() }
             if pendingQuickCaptureMode { controller.setAutoQuickSaveMode() }
             if pendingScrollCaptureMode { controller.setAutoScrollCaptureMode() }
+            if UserDefaults.standard.bool(forKey: "slimEditorMode") {
+                controller.setAutoConfirmMode()
+            }
             controllers.append(controller)
         }
         overlayControllers.append(contentsOf: controllers)
@@ -2164,6 +2167,20 @@ extension AppDelegate: OverlayWindowControllerDelegate {
             captureTimingTrace?.mark("screenshot added to history")
             // The entry just added is at index 0
             let entryID = ScreenshotHistory.shared.entries.first?.id
+
+            // Slim editor mode: open the slim editor window instead of the normal thumbnail + editor path.
+            if UserDefaults.standard.bool(forKey: "slimEditorMode") {
+                DispatchQueue.main.async {
+                    SlimEditorWindowController.open(image: image, historyEntryID: entryID)
+                }
+                if let report = finishCaptureTimingReport("timing report generated") {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.showCaptureTimingDialog(report)
+                    }
+                }
+                return
+            }
+
             // Defer thumbnail to next runloop cycle so overlay teardown completes first
             // and the main thread is free for the next capture trigger
             let annData = annotationData
