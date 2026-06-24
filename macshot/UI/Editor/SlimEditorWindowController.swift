@@ -83,8 +83,9 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         view.overlayDelegate = self
         // Suppress floating toolbar strips — slim editor uses NSToolbar instead.
         view.suppressFloatingToolbars = true
-        // Start with select tool so the user can immediately interact with the captured image.
-        view.currentTool = .select
+        // Do NOT force currentTool here — let EditorView load the user's last-used
+        // tool from UserDefaults (same pattern as DetachedEditorWindowController).
+        // Forcing it would persist the value globally, wiping last-tool memory app-wide.
 
         let scrollView = NSScrollView(frame: win.contentView?.bounds ?? NSRect(origin: .zero, size: NSSize(width: winW, height: winH)))
         scrollView.autoresizingMask = [.width, .height]
@@ -107,11 +108,6 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         scrollView.contentView = clipView
         scrollView.documentView = view
 
-        // Wire up chromeParentView so EditorView's coordinate helpers work correctly.
-        // In slim mode there are no toolbars to add, but the property is consulted for
-        // selection-rect calculations inside OverlayView.
-        view.chromeParentView = win.contentView
-
         view.applySelection(NSRect(origin: .zero, size: imgSize))
 
         // Settle deferred state before snapshotting the baseline.
@@ -119,6 +115,15 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         lastSavedUndoDepth = view.undoStack.count
 
         win.contentView = scrollView
+
+        // Wire up chromeParentView AFTER win.contentView = scrollView so the property
+        // points at the live scroll view (the actual content view), not the discarded
+        // placeholder that win.contentView held before assignment.  This is the same
+        // ordering used in DetachedEditorWindowController (chromeParentView = container
+        // AFTER container is wired up).  The property is consulted by canvasToView()
+        // for text placement and other coordinate helpers — pointing it at a dead view
+        // silently broke text, censor, and crop tool coordinate math.
+        view.chromeParentView = scrollView
         win.makeKeyAndOrderFront(nil)
         win.makeFirstResponder(view)
         NSApp.activate(ignoringOtherApps: true)
@@ -181,7 +186,10 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
     private static let copyID         = NSToolbarItem.Identifier("slim.copy")
     private static let saveID         = NSToolbarItem.Identifier("slim.save")
     private static let pinID          = NSToolbarItem.Identifier("slim.pin")
-    private static let flexibleSpaceID = NSToolbarItem.Identifier(NSToolbarItem.Identifier.flexibleSpace.rawValue)
+    // NOTE: Do NOT define a custom flexibleSpaceID static — NSToolbarItem.Identifier.flexibleSpace
+    // is a magic system identifier; duplicating its rawValue creates a ghost toolbar item that
+    // renders as a truncated label (e.g. "Bu..." from "Button") instead of a real spacer.
+    // Use .flexibleSpace directly in toolbarDefaultItemIdentifiers and toolbarAllowedItemIdentifiers.
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
@@ -264,6 +272,16 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         default:
             return nil
         }
+    }
+
+    // MARK: - Toolbar validation (BUG C)
+    // NSToolbar autovalidation calls validateToolbarItem for every item on every
+    // event loop cycle. Without this, items whose action targets are not in the
+    // responder chain get auto-disabled (greyed out). Returning true here keeps
+    // all slim-editor toolbar items permanently enabled; the action methods
+    // themselves guard on editorView being non-nil before acting.
+    func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+        return true
     }
 
     // MARK: - Toolbar item factories

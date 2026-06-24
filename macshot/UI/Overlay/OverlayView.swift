@@ -6509,8 +6509,19 @@ class OverlayView: NSView {
         } else {
             // Click (no drag), snap off — expand to full screen
             selectionRect = bounds
+            // In autoConfirmMode (e.g. "Add Capture"), a no-drag click producing a
+            // full-screen fallback is almost certainly a misclick, not intent to grab
+            // the whole screen.  Reset to idle so the user can draw a real region.
+            // Real drags (width > 5 || height > 5) are handled above and unaffected.
+            if autoConfirmMode {
+                autoConfirmMode = false
+                selectionRect = .zero
+                state = .idle
+                needsDisplay = true
+                return
+            }
             state = .selected
-            if !autoOCRMode && !autoQuickSaveMode && !autoScrollCaptureMode && !autoConfirmMode { showToolbars = true }
+            if !autoOCRMode && !autoQuickSaveMode && !autoScrollCaptureMode { showToolbars = true }
             overlayDelegate?.overlayViewDidFinishSelection(selectionRect)
         }
         hoveredWindowRect = nil
