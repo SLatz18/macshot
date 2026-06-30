@@ -65,11 +65,12 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         win.delegate = self
         win.collectionBehavior = [.fullScreenAuxiliary]
         win.titlebarAppearsTransparent = false
-        // Match the window (and its native toolbar) to the theme's brightness so
-        // the toolbar renders coherently with the themed canvas: dark toolbar for
-        // a dark theme bg, light for a light one. Same source the rest of the
-        // app's chrome uses (ToolbarLayout.appearance).
-        win.appearance = ToolbarLayout.appearance
+        // Follow the SYSTEM appearance (light chrome in Light mode, dark in Dark)
+        // rather than pinning to the always-dark theme bg. The slim editor's native
+        // NSToolbar and the semantic canvas color below both track the window
+        // appearance, so leaving this nil gives a true light OR dark editor.
+        // (The forced-dark ToolOptionsRowView/PopoverHelper path is not used here.)
+        win.appearance = nil
 
         // Install NSToolbar before showing the window.
         let toolbar = NSToolbar(identifier: "SlimEditorToolbar")
@@ -116,10 +117,10 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
-        // Canvas reflects the user's chosen theme (ToolbarLayout preset:
-        // Default / Classic / Ocean / Sunset / Forest / Mono) instead of a
-        // hardcoded gray, so the slim editor honors the app-wide theming system.
-        scrollView.backgroundColor = ToolbarLayout.bgColor
+        // Semantic canvas color that follows the system appearance: a neutral
+        // page-gray in Light mode, dark in Dark mode (MarkEdit-style). Replaces
+        // the always-dark themed bg so the slim editor has a true light mode.
+        scrollView.backgroundColor = .underPageBackgroundColor
         scrollView.allowsMagnification = false
         scrollView.minMagnification = 0.1
         scrollView.maxMagnification = 8.0
