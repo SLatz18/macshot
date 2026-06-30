@@ -99,16 +99,19 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         // overlay/detached editors to red. Accepted: the slim editor is the
         // primary path and red is the house style.
         view.currentColor = .systemRed
-        // Clamp the opening tool to one that's actually on this toolbar. The global
-        // last-used tool may be one not shown here (e.g. pencil/ellipse/pixelate);
-        // fall back to Arrow so the editor never opens in an invisible, unselectable
-        // tool. NOTE: currentTool's didSet also persists lastUsedTool app-wide, so
+        // Clamp the opening tool to one that's actually in the enabled slim toolbar.
+        // The global last-used tool may be one not shown here (e.g. pencil/ellipse);
+        // fall back to Arrow if enabled, else the first enabled tool (always at least
+        // Crop). NOTE: currentTool's didSet also persists lastUsedTool app-wide, so
         // this clamp can overwrite the global last-tool when it fires. Accepted for
         // the same reason as the color above. Selecting/moving/deleting existing
         // annotations does NOT require the removed Select tool — click-to-select
         // (startAnnotation) and Backspace-delete (keyDown) fire for any active tool.
-        if ![.rectangle, .arrow, .text, .crop].contains(view.currentTool) {
-            view.currentTool = .arrow
+        let enabledAtOpen = enabledSlimTools().map { $0.0 }
+        if !enabledAtOpen.contains(view.currentTool) {
+            view.currentTool = enabledAtOpen.contains(.arrow)
+                ? .arrow
+                : (enabledAtOpen.first ?? .crop)
         }
 
         let scrollView = NSScrollView(frame: win.contentView?.bounds ?? NSRect(origin: .zero, size: NSSize(width: winW, height: winH)))
@@ -210,11 +213,7 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
 
     // MARK: - NSToolbarDelegate
 
-    // The 5 slim tool IDs + auxiliary action IDs.
-    private static let toolBoxID      = NSToolbarItem.Identifier("slim.box")
-    private static let toolArrowID    = NSToolbarItem.Identifier("slim.arrow")
-    private static let toolTextID     = NSToolbarItem.Identifier("slim.text")
-    private static let toolCropID     = NSToolbarItem.Identifier("slim.crop")
+    // Action item IDs (static; tool IDs are dynamic — see toolItemID(for:)).
     private static let colorSwatchID  = NSToolbarItem.Identifier("slim.color")
     private static let undoID         = NSToolbarItem.Identifier("slim.undo")
     private static let redoID         = NSToolbarItem.Identifier("slim.redo")
@@ -226,40 +225,76 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
     // renders as a truncated label (e.g. "Bu..." from "Button") instead of a real spacer.
     // Use .flexibleSpace directly in toolbarDefaultItemIdentifiers and toolbarAllowedItemIdentifiers.
 
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        // Pared to the essential set: Box, Arrow, Text, Crop (tools) + Copy,
-        // Save, Pin (actions). Undo/Redo live on Cmd+Z / Cmd+Shift+Z; color is
-        // fixed to red (no swatch) for a deliberately minimal, MarkEdit-clean bar.
-        [
-            Self.toolBoxID, Self.toolArrowID, Self.toolTextID, Self.toolCropID,
-            .flexibleSpace,
-            Self.copyID, Self.saveID, Self.pinID,
+    /// Stable, per-tool identifier derived from the tool's rawValue.
+    private func toolItemID(for tool: AnnotationTool) -> NSToolbarItem.Identifier {
+        NSToolbarItem.Identifier("slim.tool.\(tool.rawValue)")
+    }
+
+    /// Returns the ordered (tool, SF-symbol, label) list that drives the slim toolbar.
+    /// Mirrors the same tool ordering as ToolbarDefinitions.bottomButtons(_:) and
+    /// filters by the "enabledTools" UserDefault ([Int] of rawValues).
+    /// nil enabledTools (fresh install, never set) = all tools enabled.
+    /// .crop is always appended last — it is editor-only and has no enabledTools entry.
+    private func enabledSlimTools() -> [(AnnotationTool, String, String)] {
+        // ponytail: no migration side-effects here; ToolbarDefinitions owns those writes.
+        let enabledRaw = UserDefaults.standard.array(forKey: "enabledTools") as? [Int]
+
+        let allTools: [(AnnotationTool, String, String)] = [
+            (.pencil,    "scribble",       "Pencil"),
+            (.line,      "line.diagonal",  "Line"),
+            (.arrow,     "arrow.up.right", "Arrow"),
+            (.rectangle, "rectangle",      "Rectangle"),
+            (.ellipse,   "oval",           "Ellipse"),
+            (.marker,    {
+                if #available(macOS 14.0, *) { return "highlighter" }
+                return "paintbrush.pointed.fill"
+            }(),                           "Marker"),
+            (.text,      "textformat",     "Text"),
+            (.number,    "1.circle.fill",  "Number"),
+            (.pixelate,  "_custom.checkerboard", "Censor"),
+            (.highlight, "sun.max",        "Highlight"),
+            (.loupe,     "magnifyingglass","Magnify"),
+            (.stamp,     "face.smiling",   "Stamp"),
+            (.colorSampler, "eyedropper",  "Color Picker"),
+            (.measure,   "ruler",          "Measure"),
         ]
+
+        var result = allTools.filter { tool, _, _ in
+            guard let enabledRaw = enabledRaw else { return true } // nil = all enabled
+            return enabledRaw.contains(tool.rawValue)
+        }
+        // Crop is editor-only; always show it regardless of enabledTools.
+        result.append((.crop, "crop", "Crop"))
+        return result
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        // Tools driven by enabledTools UserDefault + always-present Crop.
+        // Copy/Save/Pin actions stay fixed. Undo/Redo live on Cmd+Z / Cmd+Shift+Z;
+        // color is fixed to red (no swatch) for a deliberately minimal bar.
+        let toolIDs = enabledSlimTools().map { toolItemID(for: $0.0) }
+        return toolIDs + [.flexibleSpace, Self.copyID, Self.saveID, Self.pinID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
     }
 
-    // Only the 4 annotation tools get the persistent "selected" highlight. The
+    // Only the annotation tools get the persistent "selected" highlight. The
     // action buttons (copy/save/pin) stay momentary — clicking them does NOT
     // clear the active-tool selection (matches Xcode: hitting Run doesn't
     // deselect your editor tool).
     func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.toolBoxID, Self.toolArrowID, Self.toolTextID, Self.toolCropID]
+        enabledSlimTools().map { toolItemID(for: $0.0) }
     }
 
     /// Maps an annotation tool to its toolbar identifier, or nil if the tool
-    /// isn't one of the 4 slim tools (e.g. a keyboard shortcut switched to a
-    /// tool not on this toolbar — selection should clear in that case).
+    /// is not in the current enabled set (e.g. a keyboard shortcut switched to
+    /// a tool not on this toolbar — toolbar selection should clear in that case).
     private func toolbarIdentifier(for tool: AnnotationTool) -> NSToolbarItem.Identifier? {
-        switch tool {
-        case .rectangle: return Self.toolBoxID
-        case .arrow:     return Self.toolArrowID
-        case .text:      return Self.toolTextID
-        case .crop:      return Self.toolCropID
-        default:         return nil
-        }
+        let enabled = enabledSlimTools().map { $0.0 }
+        guard enabled.contains(tool) else { return nil }
+        return toolItemID(for: tool)
     }
 
     /// Sync the toolbar's selected item to the current tool. NSToolbar updates
@@ -270,31 +305,22 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        // Dynamic tool items: identifier rawValue is "slim.tool.<rawValue>".
+        if itemIdentifier.rawValue.hasPrefix("slim.tool."),
+           let rawInt = Int(itemIdentifier.rawValue.dropFirst("slim.tool.".count)),
+           let tool = AnnotationTool(rawValue: rawInt) {
+            // Look up symbol + label from the enabled list; fall back to a generic symbol
+            // in case the identifier is stale (toolbar autosave re-requests old items).
+            let entry = enabledSlimTools().first { $0.0 == tool }
+            let symbol = entry?.1 ?? "questionmark.circle"
+            let label  = entry?.2 ?? "\(tool)"
+            return makeToolItem(id: itemIdentifier, symbol: symbol,
+                                label: label, tip: label,
+                                tag: tool.rawValue,
+                                action: #selector(toolSelected(_:)))
+        }
+
         switch itemIdentifier {
-
-        case Self.toolBoxID:
-            return makeToolItem(id: itemIdentifier, symbol: "rectangle",
-                                label: "Box", tip: "Draw box",
-                                tag: AnnotationTool.rectangle.rawValue,
-                                action: #selector(toolSelected(_:)))
-
-        case Self.toolArrowID:
-            return makeToolItem(id: itemIdentifier, symbol: "arrow.up.right",
-                                label: "Arrow", tip: "Draw arrow",
-                                tag: AnnotationTool.arrow.rawValue,
-                                action: #selector(toolSelected(_:)))
-
-        case Self.toolTextID:
-            return makeToolItem(id: itemIdentifier, symbol: "textformat",
-                                label: "Text", tip: "Add text",
-                                tag: AnnotationTool.text.rawValue,
-                                action: #selector(toolSelected(_:)))
-
-        case Self.toolCropID:
-            return makeToolItem(id: itemIdentifier, symbol: "crop",
-                                label: "Crop", tip: "Crop image",
-                                tag: AnnotationTool.crop.rawValue,
-                                action: #selector(toolSelected(_:)))
 
         case Self.colorSwatchID:
             return makeColorSwatchItem()
@@ -349,10 +375,47 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         item.tag = tag
         item.target = self
         item.action = action
-        if let img = NSImage(systemSymbolName: symbol, accessibilityDescription: label) {
+        if symbol.hasPrefix("_custom.") {
+            // Custom (programmatic) symbol — not a system or asset name.
+            // ponytail: checkerboard generated inline; falls back to "square.grid.2x2" if
+            // the symbol name is unknown, so pixelate never crashes or renders blank.
+            if symbol == "_custom.checkerboard" {
+                item.image = Self.checkerboardIcon()
+            } else {
+                item.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: label)
+            }
+        } else if let img = NSImage(systemSymbolName: symbol, accessibilityDescription: label) {
             item.image = img
         }
         return item
+    }
+
+    /// Programmatic checkerboard icon for the Pixelate/Censor tool, mirroring
+    /// ToolbarButtonView.checkerboardIcon but using a neutral monochrome tint
+    /// suitable for NSToolbarItem (which applies its own tinting).
+    private static func checkerboardIcon() -> NSImage {
+        let size: CGFloat = 16
+        let img = NSImage(size: NSSize(width: size, height: size), flipped: false) { _ in
+            let cellSize = size / 4
+            let clip = NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: size, height: size),
+                                    xRadius: 3, yRadius: 3)
+            clip.addClip()
+            for row in 0..<4 {
+                for col in 0..<4 {
+                    let isDark = (row + col) % 2 == 0
+                    if isDark {
+                        NSColor.labelColor.setFill()
+                    } else {
+                        NSColor.labelColor.withAlphaComponent(0.35).setFill()
+                    }
+                    NSRect(x: CGFloat(col) * cellSize, y: CGFloat(row) * cellSize,
+                           width: cellSize, height: cellSize).fill()
+                }
+            }
+            return true
+        }
+        img.isTemplate = true
+        return img
     }
 
     private func makeActionItem(id: NSToolbarItem.Identifier, symbol: String, label: String, tip: String, action: Selector) -> NSToolbarItem {
