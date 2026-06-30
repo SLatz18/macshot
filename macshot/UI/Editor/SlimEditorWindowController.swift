@@ -74,6 +74,10 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         toolbar.autosavesConfiguration = false
         toolbar.showsBaselineSeparator = true
         win.toolbar = toolbar
+        // Modern unified style: title sits inline with the toolbar in a single
+        // compact row (the Xcode/Mail/Safari look), rather than the legacy
+        // two-row expanded title bar. Available since macOS 11; min target 12.3.
+        win.toolbarStyle = .unified
 
         // EditorView inside NSScrollView + CenteringClipView
         let view = EditorView()
