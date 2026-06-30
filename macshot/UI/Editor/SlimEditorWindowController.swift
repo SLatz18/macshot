@@ -92,9 +92,23 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         view.overlayDelegate = self
         // Suppress floating toolbar strips — slim editor uses NSToolbar instead.
         view.suppressFloatingToolbars = true
-        // Do NOT force currentTool here — let EditorView load the user's last-used
-        // tool from UserDefaults (same pattern as DetachedEditorWindowController).
-        // Forcing it would persist the value globally, wiping last-tool memory app-wide.
+        // Fixed red annotation color — the slim editor has no color swatch, and
+        // "red box / red arrow" is the intended look. NOTE: currentColor's didSet
+        // persists lastUsedColor app-wide, so opening the slim editor resets the
+        // overlay/detached editors to red. Accepted: the slim editor is the
+        // primary path and red is the house style.
+        view.currentColor = .systemRed
+        // Clamp the opening tool to one that's actually on this toolbar. The global
+        // last-used tool may be one not shown here (e.g. pencil/ellipse/pixelate);
+        // fall back to Arrow so the editor never opens in an invisible, unselectable
+        // tool. NOTE: currentTool's didSet also persists lastUsedTool app-wide, so
+        // this clamp can overwrite the global last-tool when it fires. Accepted for
+        // the same reason as the color above. Selecting/moving/deleting existing
+        // annotations does NOT require the removed Select tool — click-to-select
+        // (startAnnotation) and Backspace-delete (keyDown) fire for any active tool.
+        if ![.rectangle, .arrow, .text, .crop].contains(view.currentTool) {
+            view.currentTool = .arrow
+        }
 
         let scrollView = NSScrollView(frame: win.contentView?.bounds ?? NSRect(origin: .zero, size: NSSize(width: winW, height: winH)))
         scrollView.autoresizingMask = [.width, .height]
@@ -196,10 +210,9 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
     // MARK: - NSToolbarDelegate
 
     // The 5 slim tool IDs + auxiliary action IDs.
-    private static let toolSelectID   = NSToolbarItem.Identifier("slim.select")
+    private static let toolBoxID      = NSToolbarItem.Identifier("slim.box")
     private static let toolArrowID    = NSToolbarItem.Identifier("slim.arrow")
     private static let toolTextID     = NSToolbarItem.Identifier("slim.text")
-    private static let toolCensorID   = NSToolbarItem.Identifier("slim.censor")
     private static let toolCropID     = NSToolbarItem.Identifier("slim.crop")
     private static let colorSwatchID  = NSToolbarItem.Identifier("slim.color")
     private static let undoID         = NSToolbarItem.Identifier("slim.undo")
@@ -213,14 +226,12 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
     // Use .flexibleSpace directly in toolbarDefaultItemIdentifiers and toolbarAllowedItemIdentifiers.
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        // Pared to the essential set: Box, Arrow, Text, Crop (tools) + Copy,
+        // Save, Pin (actions). Undo/Redo live on Cmd+Z / Cmd+Shift+Z; color is
+        // fixed to red (no swatch) for a deliberately minimal, MarkEdit-clean bar.
         [
-            Self.toolSelectID, Self.toolArrowID, Self.toolTextID,
-            Self.toolCensorID, Self.toolCropID,
+            Self.toolBoxID, Self.toolArrowID, Self.toolTextID, Self.toolCropID,
             .flexibleSpace,
-            Self.colorSwatchID,
-            .flexibleSpace,
-            Self.undoID, Self.redoID,
-            .space,
             Self.copyID, Self.saveID, Self.pinID,
         ]
     }
@@ -229,25 +240,24 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         toolbarDefaultItemIdentifiers(toolbar)
     }
 
-    // Only the 5 annotation tools get the persistent "selected" highlight. The
-    // action buttons (undo/redo/copy/save/pin) stay momentary — clicking them
-    // does NOT clear the active-tool selection (matches Xcode: hitting Run
-    // doesn't deselect your editor tool).
+    // Only the 4 annotation tools get the persistent "selected" highlight. The
+    // action buttons (copy/save/pin) stay momentary — clicking them does NOT
+    // clear the active-tool selection (matches Xcode: hitting Run doesn't
+    // deselect your editor tool).
     func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.toolSelectID, Self.toolArrowID, Self.toolTextID, Self.toolCensorID, Self.toolCropID]
+        [Self.toolBoxID, Self.toolArrowID, Self.toolTextID, Self.toolCropID]
     }
 
     /// Maps an annotation tool to its toolbar identifier, or nil if the tool
-    /// isn't one of the 5 slim tools (e.g. a keyboard shortcut switched to a
+    /// isn't one of the 4 slim tools (e.g. a keyboard shortcut switched to a
     /// tool not on this toolbar — selection should clear in that case).
     private func toolbarIdentifier(for tool: AnnotationTool) -> NSToolbarItem.Identifier? {
         switch tool {
-        case .select:   return Self.toolSelectID
-        case .arrow:    return Self.toolArrowID
-        case .text:     return Self.toolTextID
-        case .pixelate: return Self.toolCensorID
-        case .crop:     return Self.toolCropID
-        default:        return nil
+        case .rectangle: return Self.toolBoxID
+        case .arrow:     return Self.toolArrowID
+        case .text:      return Self.toolTextID
+        case .crop:      return Self.toolCropID
+        default:         return nil
         }
     }
 
@@ -261,10 +271,10 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
 
-        case Self.toolSelectID:
-            return makeToolItem(id: itemIdentifier, symbol: "arrow.up.left.and.arrow.down.right",
-                                label: "Select", tip: "Select & move annotations",
-                                tag: AnnotationTool.select.rawValue,
+        case Self.toolBoxID:
+            return makeToolItem(id: itemIdentifier, symbol: "rectangle",
+                                label: "Box", tip: "Draw box",
+                                tag: AnnotationTool.rectangle.rawValue,
                                 action: #selector(toolSelected(_:)))
 
         case Self.toolArrowID:
@@ -277,12 +287,6 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
             return makeToolItem(id: itemIdentifier, symbol: "textformat",
                                 label: "Text", tip: "Add text",
                                 tag: AnnotationTool.text.rawValue,
-                                action: #selector(toolSelected(_:)))
-
-        case Self.toolCensorID:
-            return makeToolItem(id: itemIdentifier, symbol: "eye.slash",
-                                label: "Censor", tip: "Censor / redact region (pixelate)",
-                                tag: AnnotationTool.pixelate.rawValue,
                                 action: #selector(toolSelected(_:)))
 
         case Self.toolCropID:
