@@ -147,6 +147,15 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
 
         self.window = win
         self.editorView = view
+
+        // Reflect the editor's current tool as the selected toolbar item, and
+        // keep the two in sync whenever the tool changes (toolbar click or
+        // keyboard shortcut). Set after the window is on screen so the toolbar
+        // items are realized before we assign selectedItemIdentifier.
+        view.onToolChange = { [weak self] tool in
+            self?.syncToolbarSelection(to: tool)
+        }
+        syncToolbarSelection(to: view.currentTool)
     }
 
     private func pixelSubtitle(for image: NSImage) -> String {
@@ -206,6 +215,35 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    // Only the 5 annotation tools get the persistent "selected" highlight. The
+    // action buttons (undo/redo/copy/save/pin) stay momentary — clicking them
+    // does NOT clear the active-tool selection (matches Xcode: hitting Run
+    // doesn't deselect your editor tool).
+    func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [Self.toolSelectID, Self.toolArrowID, Self.toolTextID, Self.toolCensorID, Self.toolCropID]
+    }
+
+    /// Maps an annotation tool to its toolbar identifier, or nil if the tool
+    /// isn't one of the 5 slim tools (e.g. a keyboard shortcut switched to a
+    /// tool not on this toolbar — selection should clear in that case).
+    private func toolbarIdentifier(for tool: AnnotationTool) -> NSToolbarItem.Identifier? {
+        switch tool {
+        case .select:   return Self.toolSelectID
+        case .arrow:    return Self.toolArrowID
+        case .text:     return Self.toolTextID
+        case .pixelate: return Self.toolCensorID
+        case .crop:     return Self.toolCropID
+        default:        return nil
+        }
+    }
+
+    /// Sync the toolbar's selected item to the current tool. NSToolbar updates
+    /// selection automatically on a toolbar click, but a keyboard/programmatic
+    /// tool switch must update it explicitly.
+    private func syncToolbarSelection(to tool: AnnotationTool) {
+        window?.toolbar?.selectedItemIdentifier = toolbarIdentifier(for: tool)
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {

@@ -250,6 +250,10 @@ class OverlayView: NSView {
         lastUsedTool = .arrow
         UserDefaults.standard.removeObject(forKey: "lastUsedTool")
     }
+    /// Optional observer fired whenever currentTool changes (via toolbar click,
+    /// keyboard shortcut, or programmatic set). The slim editor uses this to keep
+    /// its NSToolbar selectedItemIdentifier in sync; nil for all other consumers.
+    var onToolChange: ((AnnotationTool) -> Void)?
     var currentTool: AnnotationTool = {
         OverlayView.initialTool
     }() {
@@ -259,6 +263,7 @@ class OverlayView: NSView {
                 OverlayView.lastUsedTool = currentTool
                 UserDefaults.standard.set(currentTool.rawValue, forKey: "lastUsedTool")
             }
+            onToolChange?(currentTool)
         }
     }
     var currentColor: NSColor = {
