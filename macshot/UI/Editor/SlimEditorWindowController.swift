@@ -97,7 +97,10 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(white: 0.15, alpha: 1.0)
+        // Canvas reflects the user's chosen theme (ToolbarLayout preset:
+        // Default / Classic / Ocean / Sunset / Forest / Mono) instead of a
+        // hardcoded gray, so the slim editor honors the app-wide theming system.
+        scrollView.backgroundColor = ToolbarLayout.bgColor
         scrollView.allowsMagnification = false
         scrollView.minMagnification = 0.1
         scrollView.maxMagnification = 8.0
