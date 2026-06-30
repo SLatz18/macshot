@@ -65,6 +65,11 @@ class SlimEditorWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate 
         win.delegate = self
         win.collectionBehavior = [.fullScreenAuxiliary]
         win.titlebarAppearsTransparent = false
+        // Match the window (and its native toolbar) to the theme's brightness so
+        // the toolbar renders coherently with the themed canvas: dark toolbar for
+        // a dark theme bg, light for a light one. Same source the rest of the
+        // app's chrome uses (ToolbarLayout.appearance).
+        win.appearance = ToolbarLayout.appearance
 
         // Install NSToolbar before showing the window.
         let toolbar = NSToolbar(identifier: "SlimEditorToolbar")
